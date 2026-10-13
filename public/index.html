@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Deck">
+<title>Deck</title>
+<style>
+  /* Safari 12 target: no CSS nesting, no :is(), no gap on flexbox. Grid gap is fine. */
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #0b0d10; color: #e6e8eb;
+    font: 16px/1.35 -apple-system, "Helvetica Neue", sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overflow: hidden; }
+  #app { display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; height: 100%; }
+  header { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center;
+    padding: 10px 16px; border-bottom: 1px solid #1d2127; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .5px; }
+  header .counts { margin-left: 16px; color: #8a929c; font-size: 15px; }
+  header .clock { margin-left: auto; font-variant-numeric: tabular-nums; color: #8a929c; font-size: 15px; }
+  .dot { width: 10px; height: 10px; border-radius: 5px; margin-left: 12px; background: #e5484d; }
+  .dot.on { background: #30a46c; }
+
+  #grid { -webkit-flex: 1; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: min-content; grid-gap: 12px; }
+  @media (orientation: portrait) { #grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .tile, .x, .back, .opt { cursor: pointer; }
+  .tile { background: #14181d; border-radius: 14px; padding: 12px 14px; border-left: 6px solid #3a4048;
+    min-height: 120px; position: relative; }
+  .tile.working { border-left-color: #3e63dd; }
+  .tile.waiting { border-left-color: #f5a524; background: #1f1a10; }
+  .tile.done    { border-left-color: #30a46c; }
+  .tile.error   { border-left-color: #e5484d; }
+  .tile.ask { -webkit-animation: pulse 1.6s ease-in-out infinite; animation: pulse 1.6s ease-in-out infinite; }
+  @-webkit-keyframes pulse { 50% { background: #2c220d; } }
+  @keyframes pulse { 50% { background: #2c220d; } }
+
+  .top { display: -webkit-flex; display: flex; -webkit-align-items: baseline; align-items: baseline; }
+  .proj { font-size: 19px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .state { margin-left: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: #8a929c; white-space: nowrap; }
+  .tile.waiting .state { color: #f5a524; }
+  .tile.working .state { color: #7b9bff; }
+  .tile.done .state { color: #4cc38a; }
+  .tile.error .state { color: #ff6369; }
+  .x { margin-left: auto; padding: 0 4px 0 12px; color: #5b636d; font-size: 22px; line-height: 1; }
+  .msg { color: #b4bac2; font-size: 14px; margin-top: 6px; max-height: 3.9em; overflow: hidden; word-break: break-word; }
+  .meta { color: #5b636d; font-size: 12px; margin-top: 6px; }
+
+  .perm { margin-top: 10px; background: #0b0d10; border-radius: 10px; padding: 10px; }
+  .perm .tool { font-weight: 600; color: #f5a524; font-size: 14px; }
+  .perm pre { margin: 4px 0 10px; white-space: pre-wrap; word-break: break-all; font: 13px/1.3 Menlo, monospace;
+    color: #d6dae0; max-height: 8em; overflow: hidden; }
+  .btns { display: -webkit-flex; display: flex; }
+  .btn { -webkit-flex: 1; flex: 1; border: 0; border-radius: 10px; padding: 14px 0; margin-right: 8px;
+    font: 600 16px -apple-system, sans-serif; color: #fff; background: #2a3038; }
+  .btn:last-child { margin-right: 0; }
+  .btn.allow { background: #2f8f5b; }
+  .btn.deny  { background: #c4373c; }
+  .btn:active { opacity: .6; }
+
+  footer { display: -webkit-flex; display: flex; padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid #1d2127; }
+  footer .btn { padding: 18px 0; font-size: 17px; }
+
+  #detail { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #0b0d10; display: none;
+    -webkit-flex-direction: column; flex-direction: column; }
+  #detail.open { display: -webkit-flex; display: flex; }
+  #detail header .back { font-size: 17px; color: #7b9bff; padding: 4px 16px 4px 0; }
+  #detail header .state { font-size: 13px; }
+  #log { -webkit-flex: 1; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 16px; }
+  .m { margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; word-break: break-word;
+    font-size: 15px; -webkit-user-select: text; user-select: text; }
+  .m.user { background: #1d2a4d; margin-left: 15%; }
+  .m.assistant { background: #14181d; margin-right: 10%; }
+  .m.result { color: #9aa3ad; background: #101317; font: 12px/1.35 Menlo, monospace; max-height: 16em; overflow-y: auto;
+    -webkit-overflow-scrolling: touch; margin-right: 10%; }
+  .qtext { font-size: 16px; font-weight: 600; margin: 4px 0 8px; color: #e6e8eb; }
+  .opts { margin-bottom: 10px; }
+  .opt { display: block; width: 100%; text-align: left; border: 1px solid #2a3038; background: #14181d; color: #e6e8eb;
+    border-radius: 10px; padding: 12px; margin-bottom: 6px; font: 600 16px -apple-system, sans-serif; }
+  .opt small { display: block; font-weight: 400; color: #8a929c; font-size: 13px; margin-top: 2px; }
+  .opt.sel { border-color: #3e63dd; background: #1d2a4d; }
+  .m.tool { color: #8a929c; font: 13px/1.3 Menlo, monospace; padding: 4px 12px; }
+  #dperm .perm { margin: 0 16px 10px; }
+  .compose { display: -webkit-flex; display: flex; padding: 10px 12px; border-top: 1px solid #1d2127;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .compose textarea { -webkit-flex: 1; flex: 1; height: 54px; resize: none; border: 0; border-radius: 10px; padding: 10px;
+    background: #14181d; color: #e6e8eb; font: 16px -apple-system, sans-serif; margin-right: 8px; -webkit-user-select: text; user-select: text; }
+  .compose .btn { -webkit-flex: 0 0 auto; flex: 0 0 auto; padding: 0 18px; margin-right: 6px; }
+  .compose .ro { -webkit-flex: 1; flex: 1; color: #8a929c; padding: 14px 4px; font-size: 15px; }
+
+  .empty { grid-column: 1 / -1; text-align: center; color: #5b636d; padding: 80px 0; font-size: 18px; }
+  .toast { position: fixed; left: 50%; bottom: 90px; -webkit-transform: translateX(-50%); transform: translateX(-50%);
+    background: #c4373c; color: #fff; padding: 10px 16px; border-radius: 10px; display: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>CLAUDE DECK</h1><span class="counts" id="counts"></span>
+    <span class="clock" id="clock"></span><span class="dot" id="dot"></span>
+  </header>
+  <div id="grid"></div>
+  <footer>
+    <button class="btn" data-action="focus">Focus Claude</button>
+    <button class="btn" data-action="new">New session</button>
+    <button class="btn deny" data-action="escape">Esc / Interrupt</button>
+  </footer>
+</div>
+<div id="detail">
+  <header>
+    <span class="back" data-close="1">&lsaquo; Back</span>
+    <h1 id="dtitle"></h1><span class="state" id="dstate" style="margin-left:10px"></span>
+    <span class="clock" id="dmeta"></span>
+  </header>
+  <div id="log"></div>
+  <div id="dperm"></div>
+  <div class="compose" id="compose"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  // Safari 12: stick to ES5 + XHR + EventSource.
+  var token = '';
+  var m = /[?&]t=([0-9a-f]+)/.exec(location.search);
+  try {
+    if (m) localStorage.setItem('deckToken', m[1]);
+    token = m ? m[1] : (localStorage.getItem('deckToken') || '');
+  } catch (e) { token = m ? m[1] : ''; }
+
+  var grid = document.getElementById('grid');
+  var dot = document.getElementById('dot');
+  var counts = document.getElementById('counts');
+  var clock = document.getElementById('clock');
+  var toast = document.getElementById('toast');
+  var state = { now: Date.now(), sessions: [] };
+  var skew = 0;
+
+  var LABEL = { idle: 'idle', working: 'working', waiting: 'needs you', done: 'done', error: 'error' };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function ago(t) {
+    var s = Math.max(0, Math.round((Date.now() + skew - t) / 1000));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    return Math.floor(s / 3600) + 'h' + ('0' + Math.floor(s % 3600 / 60)).slice(-2);
+  }
+
+  // AskUserQuestion picks survive the frequent re-renders: picks[permId][questionIndex] = [labels].
+  var picks = {};
+
+  function questionHtml(p) {
+    var qs = p.questions, html = '<div class="perm">', instant = qs.length === 1 && !qs[0].multiSelect;
+    var mine = picks[p.id] || {};
+    for (var qi = 0; qi < qs.length; qi++) {
+      var q = qs[qi], sel = mine[qi] || [];
+      html += '<div class="qtext">' + esc(q.question) + (q.multiSelect ? ' <small>(multi)</small>' : '') + '</div><div class="opts">';
+      for (var oi = 0; oi < q.options.length; oi++) {
+        var o = q.options[oi];
+        html += '<button class="opt' + (sel.indexOf(o.label) >= 0 ? ' sel' : '') + '" data-opt="' + esc(p.id) +
+          '" data-qi="' + qi + '" data-label="' + esc(o.label) + '">' + esc(o.label) +
+          (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</button>';
+      }
+      var other = sel.length === 1 && !optionLabel(q, sel[0]) ? sel[0] : '';
+      html += '<button class="opt' + (other ? ' sel' : '') + '" data-other="' + esc(p.id) + '" data-qi="' + qi + '">' +
+        (other ? esc(other) : 'Other\u2026') + '<small>type your own answer</small></button></div>';
+    }
+    html += '<div class="btns">' + (instant ? '' : '<button class="btn allow" data-answer="' + esc(p.id) + '">Send answer</button>') +
+      '<button class="btn" data-id="' + esc(p.id) + '" data-b="mac">Answer on Mac</button></div></div>';
+    return html;
+  }
+
+  function optionLabel(q, label) {
+    for (var i = 0; i < q.options.length; i++) if (q.options[i].label === label) return true;
+    return false;
+  }
+
+  // window.prompt keeps the text out of the DOM that render() keeps rebuilding.
+  function pickOther(pid, qi) {
+    var p = findPerm(pid);
+    if (!p) return;
+    var text = window.prompt(p.questions[qi].question, '');
+    if (text == null || !text.trim()) return;
+    var mine = picks[pid] = picks[pid] || {};
+    mine[qi] = [text.trim()];
+    if (p.questions.length === 1) return sendAnswers(p);
+    render();
+  }
+
+  function findPerm(id) {
+    for (var i = 0; i < state.sessions.length; i++) {
+      var ps = state.sessions[i].pending;
+      for (var j = 0; j < ps.length; j++) if (ps[j].id === id) return ps[j];
+    }
+    return null;
+  }
+
+  function sendAnswers(p) {
+    var mine = picks[p.id] || {}, answers = {};
+    for (var qi = 0; qi < p.questions.length; qi++) {
+      if (!mine[qi] || !mine[qi].length) return showError('answer every question first');
+      answers[p.questions[qi].question] = mine[qi].join(', ');
+    }
+    post('/decide', { id: p.id, behavior: 'allow', answers: answers });
+    delete picks[p.id];
+  }
+
+  function pickOption(pid, qi, label) {
+    var p = findPerm(pid);
+    if (!p) return;
+    var q = p.questions[qi], mine = picks[pid] = picks[pid] || {}, sel = mine[qi] || [];
+    if (q.multiSelect) {
+      var at = sel.indexOf(label);
+      if (at >= 0) sel.splice(at, 1); else sel.push(label);
+    } else sel = [label];
+    mine[qi] = sel;
+    if (p.questions.length === 1 && !q.multiSelect) return sendAnswers(p);
+    render();
+  }
+
+  function permHtml(p) {
+    if (p.questions && p.questions.length) return questionHtml(p);
+    return '<div class="perm"><div class="tool">' + esc(p.tool) + ' &middot; ' + ago(p.since) + '</div>' +
+      '<pre>' + esc(p.summary) + '</pre><div class="btns">' +
+      '<button class="btn allow" data-id="' + esc(p.id) + '" data-b="allow">Allow</button>' +
+      '<button class="btn deny" data-id="' + esc(p.id) + '" data-b="deny">Deny</button>' +
+      '<button class="btn" data-id="' + esc(p.id) + '" data-b="mac">On Mac</button></div></div>';
+  }
+
+  function render() {
+    var ss = state.sessions, html = '', nWait = 0, nWork = 0;
+    for (var i = 0; i < ss.length; i++) {
+      var s = ss[i];
+      if (s.state === 'waiting') nWait++;
+      if (s.state === 'working') nWork++;
+      var ask = s.pending.length > 0;
+      html += '<div class="tile ' + esc(s.state) + (ask ? ' ask' : '') + '" data-open="' + esc(s.id) + '">' +
+        '<div class="top"><span class="proj">' + esc(s.project || s.id.slice(0, 8)) + '</span>' +
+        '<span class="state">' + esc(LABEL[s.state] || s.state) + '</span>' +
+        '<span class="x" data-dismiss="' + esc(s.id) + '">&times;</span></div>' +
+        '<div class="msg">' + esc(s.msg) + '</div>';
+      for (var j = 0; j < s.pending.length; j++) html += permHtml(s.pending[j]);
+      html += '<div class="meta">' + esc(s.mode) + (s.mode ? ' &middot; ' : '') + ago(s.updated) + ' ago</div></div>';
+    }
+    grid.innerHTML = html || '<div class="empty">No Claude sessions yet</div>';
+    counts.textContent = ss.length + ' sessions · ' + nWork + ' working · ' + nWait + ' waiting';
+    document.title = nWait ? '(' + nWait + ') Deck' : 'Deck';
+    if (openTab) {
+      for (var k = 0; k < ss.length; k++) if (ss[k].tab === openTab) { openTab = null; openDetail(ss[k].id); return; }
+    }
+    renderDetail();
+  }
+
+  // Detail view: transcript is fetched on open and whenever the session's state moves.
+  var selected = null, fetchedAt = -1, composeFor = null, openTab = null;
+
+  function findSession(id) {
+    for (var i = 0; i < state.sessions.length; i++) if (state.sessions[i].id === id) return state.sessions[i];
+    return null;
+  }
+
+  function openDetail(id) {
+    selected = id; fetchedAt = -1; composeFor = null;
+    document.getElementById('log').innerHTML = '';
+    document.getElementById('detail').className = 'open';
+    renderDetail();
+  }
+
+  function closeDetail() {
+    selected = null;
+    document.getElementById('detail').className = '';
+  }
+
+  function renderDetail() {
+    if (!selected) return;
+    var s = findSession(selected);
+    if (!s) { closeDetail(); return; }
+    document.getElementById('dtitle').textContent = s.project || s.id.slice(0, 8);
+    var st = document.getElementById('dstate');
+    st.textContent = LABEL[s.state] || s.state;
+    st.style.color = { working: '#7b9bff', waiting: '#f5a524', done: '#4cc38a', error: '#ff6369' }[s.state] || '#8a929c';
+    document.getElementById('dmeta').textContent = (s.tab ? 'tab ' + s.tab + ' \u00b7 ' : 'Desktop \u00b7 ') + ago(s.updated) + ' ago';
+    var ph = '';
+    for (var j = 0; j < s.pending.length; j++) ph += permHtml(s.pending[j]);
+    document.getElementById('dperm').innerHTML = ph;
+    // Rebuilding the compose box would wipe a half-typed message.
+    if (composeFor !== s.id + ':' + s.canSend) {
+      composeFor = s.id + ':' + s.canSend;
+      document.getElementById('compose').innerHTML = s.canSend ?
+        '<textarea id="txt" placeholder="Message to ' + esc(s.project) + '"></textarea>' +
+        '<button class="btn allow" data-send="1">Send</button>' +
+        '<button class="btn" data-quick="continue">Continue</button>' +
+        '<button class="btn" data-quick="yes">Yes</button>' :
+        '<div class="ro">Desktop session: read-only here, reply in Claude on the Mac.</div>' +
+        '<button class="btn" data-action="focus">Focus Claude</button>';
+    }
+    if (fetchedAt !== s.updated) { fetchedAt = s.updated; fetchLog(s.id); }
+  }
+
+  function fetchLog(id) {
+    var x = new XMLHttpRequest();
+    x.open('GET', '/session/' + encodeURIComponent(id) + '?t=' + encodeURIComponent(token));
+    x.onload = function () {
+      if (x.status !== 200 || selected !== id) return;
+      var msgs = JSON.parse(x.responseText).messages, html = '';
+      for (var i = 0; i < msgs.length; i++) html += '<div class="m ' + esc(msgs[i].role) + '">' + esc(msgs[i].text) + '</div>';
+      var log = document.getElementById('log');
+      var atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+      log.innerHTML = html || '<div class="m tool">no transcript yet</div>';
+      if (atBottom || log.getAttribute('data-for') !== id) log.scrollTop = log.scrollHeight;
+      log.setAttribute('data-for', id);
+    };
+    x.send();
+  }
+
+  function sendText(text) {
+    if (!selected || !text) return;
+    post('/send', { session: selected, text: text });
+  }
+
+  function showError(msg) {
+    toast.textContent = msg;
+    toast.style.display = 'block';
+    setTimeout(function () { toast.style.display = 'none'; }, 2500);
+  }
+
+  function post(path, body, cb) {
+    var x = new XMLHttpRequest();
+    x.open('POST', path);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.setRequestHeader('X-Deck-Token', token);
+    x.onload = function () {
+      if (x.status >= 300) return showError(path + ': ' + x.status + ' ' + x.responseText);
+      if (cb) cb(JSON.parse(x.responseText || '{}'));
+    };
+    x.onerror = function () { showError(path + ': network error'); };
+    x.send(JSON.stringify(body || {}));
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var keys = ['data-other', 'data-opt', 'data-answer', 'data-b', 'data-action', 'data-dismiss', 'data-send', 'data-quick', 'data-close', 'data-open'];
+    function hit(n) { for (var k = 0; k < keys.length; k++) if (n.getAttribute(keys[k])) return true; return false; }
+    while (t && t !== document && !hit(t)) t = t.parentNode;
+    if (!t || t === document) return;
+    if (t.getAttribute('data-other')) pickOther(t.getAttribute('data-other'), +t.getAttribute('data-qi'));
+    else if (t.getAttribute('data-opt')) pickOption(t.getAttribute('data-opt'), +t.getAttribute('data-qi'), t.getAttribute('data-label'));
+    else if (t.getAttribute('data-answer')) { var pa = findPerm(t.getAttribute('data-answer')); if (pa) sendAnswers(pa); }
+    else if (t.getAttribute('data-b')) post('/decide', { id: t.getAttribute('data-id'), behavior: t.getAttribute('data-b') });
+    else if (t.getAttribute('data-action')) post('/action/' + t.getAttribute('data-action'), {}, function (r) {
+      // A chan-backed new session opens its detail view as soon as its first hook lands.
+      if (r.tab) openTab = r.tab;
+    });
+    else if (t.getAttribute('data-dismiss')) post('/dismiss', { session: t.getAttribute('data-dismiss') });
+    else if (t.getAttribute('data-send')) {
+      var ta = document.getElementById('txt');
+      sendText(ta.value.trim()); ta.value = ''; ta.blur();
+    }
+    else if (t.getAttribute('data-quick')) sendText(t.getAttribute('data-quick'));
+    else if (t.getAttribute('data-close')) closeDetail();
+    else openDetail(t.getAttribute('data-open'));
+  });
+
+  // Rebuilding the DOM mid-touch drops the click; defer ticks while a finger is down.
+  var touching = false;
+  document.addEventListener('touchstart', function () { touching = true; }, true);
+  document.addEventListener('touchend', function () { setTimeout(function () { touching = false; }, 300); }, true);
+
+  var es, lastMsg = 0;
+  function connect() {
+    if (es) es.close();
+    es = new EventSource('/events?t=' + encodeURIComponent(token));
+    es.onopen = function () { dot.className = 'dot on'; lastMsg = Date.now(); };
+    es.onerror = function () { dot.className = 'dot'; };
+    es.addEventListener('ping', function () { lastMsg = Date.now(); });
+    es.onmessage = function (ev) {
+      lastMsg = Date.now();
+      state = JSON.parse(ev.data);
+      skew = state.now - Date.now();
+      render();
+    };
+  }
+
+  setInterval(function () {
+    var d = new Date();
+    clock.textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    // Pings arrive every 15s; iOS can leave a dead EventSource after Wi-Fi sleep.
+    if (Date.now() - lastMsg > 40000) { dot.className = 'dot'; connect(); }
+    if (!touching) render();
+  }, 5000);
+
+  if (!token) showError('missing ?t=TOKEN in URL');
+  connect();
+  render();
+})();
+</script>
+</body>
+</html>

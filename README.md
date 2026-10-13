@@ -60,3 +60,7 @@ as Gemini CLI, use different hook events and payloads and are not supported.
   - restart: `launchctl kickstart -k gui/$(id -u)/com.example.deck`
   - logs: wherever the plist's `StandardOutPath` points
 - iPad URL: `http://<mac-ip>:8787/?t=<token>` (printed in the log).
+
+## License
+
+MIT. See `LICENSE`.

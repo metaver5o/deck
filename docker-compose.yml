@@ -1,0 +1,20 @@
+services:
+  deck:
+    build: .
+    image: deck:latest
+    restart: unless-stopped
+    environment:
+      # Your Mac's LAN IP, so the log prints a URL the iPad can open.
+      DECK_URL_HOST: ${DECK_URL_HOST:-your-mac-ip}
+      DECK_PERM_TIMEOUT: ${DECK_PERM_TIMEOUT:-90}
+      DECK_QUESTION_TIMEOUT: ${DECK_QUESTION_TIMEOUT:-300}
+    ports:
+      - "8787:8787"            # iPad UI + SSE, token required
+      - "127.0.0.1:8788:8788"  # Claude Code hooks, this machine only
+    volumes:
+      - deck-data:/home/node/.config/deck
+      # Session transcripts, mounted at the same path the hooks report.
+      - ${HOME}/.claude/projects:${HOME}/.claude/projects:ro
+
+volumes:
+  deck-data:

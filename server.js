@@ -12,6 +12,11 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const PORT = Number(process.env.DECK_PORT || 8787);
+// In a container, hooks can't arrive on loopback. Docker publishes this port on
+// the host's loopback only, so anything reaching it came from the host itself.
+const HOOK_PORT = Number(process.env.DECK_HOOK_PORT || 0);
+// Address to print in the iPad URL (a container only knows its own bridge IP).
+const URL_HOST = process.env.DECK_URL_HOST || '';
 // Held PermissionRequest hooks block the Desktop dialog, so fall back to it
 // after this long without an answer from the iPad.
 const PERM_TIMEOUT_MS = Number(process.env.DECK_PERM_TIMEOUT || 90) * 1000;
@@ -357,16 +362,19 @@ function onHook(ev, body, headers, res) {
   send(res, 200, '');
 }
 
-const server = http.createServer(async (req, res) => {
+async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const parts = url.pathname.split('/').filter(Boolean);
+  const onHookPort = HOOK_PORT > 0 && req.socket.localPort === HOOK_PORT;
   try {
+    if (onHookPort && !(req.method === 'POST' && parts[0] === 'hook')) return send(res, 404, { error: 'hooks only' });
+
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
       return send(res, 200, fs.readFileSync(INDEX_PATH), 'text/html; charset=utf-8');
     }
 
     if (req.method === 'POST' && parts[0] === 'hook' && parts.length === 2) {
-      if (!isLoopback(req)) return send(res, 403, { error: 'loopback only' });
+      if (HOOK_PORT ? !onHookPort : !isLoopback(req)) return send(res, 403, { error: 'loopback only' });
       noteChan(req.headers);
       return onHook(parts[1], await readBody(req), req.headers, res);
     }
@@ -433,6 +441,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && parts[0] === 'action' && ACTIONS[parts[1]]) {
+      if (process.platform !== 'darwin') return send(res, 501, { error: 'Mac actions need the deck running on the Mac, not in a container' });
       return execFile('osascript', ['-e', ACTIONS[parts[1]]], { timeout: 5000 }, (err, _o, stderr) => {
         if (err) console.error('action', parts[1], (stderr || err.message).trim());
         send(res, err ? 500 : 200, err ? { error: (stderr || err.message).trim() } : {});
@@ -443,7 +452,8 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     send(res, 400, { error: e.message });
   }
-});
+}
+const server = http.createServer(handle);
 
 // SSE keepalive; also lets the iPad notice a dead link quickly.
 setInterval(() => {
@@ -452,5 +462,6 @@ setInterval(() => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('deck listening on :' + PORT);
-  for (const a of lanAddrs()) console.log('  iPad: http://' + a + ':' + PORT + '/?t=' + TOKEN);
+  for (const a of URL_HOST ? [URL_HOST] : lanAddrs()) console.log('  iPad: http://' + a + ':' + PORT + '/?t=' + TOKEN);
 });
+if (HOOK_PORT) http.createServer(handle).listen(HOOK_PORT, '0.0.0.0', () => console.log('hooks on :' + HOOK_PORT));

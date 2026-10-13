@@ -1,66 +1,103 @@
 # deck
 
-iPad mini 2 (iOS 12, Safari) as a stream deck for Claude Code sessions
-(Desktop Code tab and CLI).
+<p align="center">
+  <a href="docs/deck-demo.mp4"><img src="docs/deck-demo.gif" width="640" alt="The deck on an iPad: a permission request appears, Allow is tapped, the session continues; then a multiple-choice question is answered with one tap"></a>
+  <br><sub>Click for the full video (22 s). Sessions in the demo are synthetic; the UI and hook responses are real.</sub>
+</p>
 
-- `server.js`: zero-dep Node server on :8787. Receives Claude Code HTTP hooks
-  on loopback, pushes state to the iPad over SSE, holds `PermissionRequest`
-  hooks until Allow/Deny is tapped.
-- `public/index.html`: ES5 UI for Safari 12.
+**A 2013 iPad mini as a stream deck for Claude Code.** Every session is a tile.
+When an agent needs a permission or asks a question, it shows up on the iPad
+and one tap answers it.
+
+I work across several companies, freelance gigs and customers, each with its
+own projects, and several Claude Code agents on each project. Approvals were
+the bottleneck: an agent waits on a prompt in a window I'm not looking at, and
+nothing moves until I notice. The deck puts all of them in front of me.
+
+The iPad mini 2 is stuck on iOS 12, where modern web apps don't load. So the
+UI is plain ES5 for Safari 12, with no build step and no framework, and the
+server is a single Node file with zero dependencies.
+
+<p align="center">
+  <img src="docs/permission.png" width="400" alt="A session needs you: Bash npm test, with Allow, Deny and On Mac buttons">
+  <img src="docs/question.png" width="400" alt="A question from Claude shown as tappable options">
+</p>
 
 ## Quick start
 
-Needs Node 18+ and Claude Code. No API key: the deck only sees Claude Code's
-hook events, and Claude Code keeps using whatever login it already has.
+You need Node 18+ and Claude Code. There's no API key to set: the deck only
+sees Claude Code's hook events, and Claude Code keeps its own login.
 
 ```sh
 git clone https://github.com/metaver5o/deck && cd deck
 node server.js            # prints the iPad URL with its token
 ```
 
-1. Merge `examples/hooks.json` into `~/.claude/settings.json` (or a project's
-   `.claude/settings.json`). Keep any hooks you already have.
-2. Open the printed `http://<mac-ip>:8787/?t=<token>` on the iPad (same Wi-Fi).
-   "Add to Home Screen" makes it full screen.
-3. Start `claude`. Sessions appear as tiles; permission prompts and
-   questions show Allow/Deny or the options.
+1. Merge [`examples/hooks.json`](examples/hooks.json) into
+   `~/.claude/settings.json` (or a project's `.claude/settings.json`). Keep any
+   hooks you already have.
+2. On the iPad, open the printed `http://<mac-ip>:8787/?t=<token>` (same
+   Wi-Fi). "Add to Home Screen" makes it full screen.
+3. Start `claude`. Sessions appear as tiles, and permission prompts and
+   questions show up as buttons.
 
-Works with Claude Code only (CLI and the Desktop Code tab). Other agents, such
-as Gemini CLI, use different hook events and payloads and are not supported.
+The deck works with Claude Code only, in the CLI and in the Desktop Code tab.
+Other agents, such as Gemini CLI, use different hook events and payloads and
+aren't supported.
 
-## Behavior
+## How it works
 
-- Tiles per session: working / needs you / done / error.
-- Permission requests are held up to `DECK_PERM_TIMEOUT` (default 90s), then
-  handed back to the Desktop dialog. "On Mac" hands back immediately. If no
-  iPad is connected, hooks return instantly and nothing changes.
-- `AskUserQuestion` arrives as a `PermissionRequest`; the deck shows the
-  options and answers with `allow` + `updatedInput.answers`
-  (`{questionText: label}`, multi-select joined with ", "). Works for Desktop
-  and terminal sessions. Held up to `DECK_QUESTION_TIMEOUT` (default 300s).
-- Tap a tile for the session detail: transcript tail (from `transcript_path`)
-  plus a compose box. Sending works only for sessions inside chan terminals
-  (`cs terminal write --submit claude`, optional); Desktop sessions are read-only.
-- "New session" opens `claude` in a new chan tab (group `deck`) in the last
-  chan window seen by a hook (`~/.config/deck/chan.json`). Without chan it
-  falls back to Cmd+N in Claude.app via `osascript`.
-- Focus/Esc drive Claude.app via `osascript`; Esc needs Accessibility for the
-  node binary (ad-hoc signed, so re-grant after node upgrades).
-- Hooks pass `CHAN_TAB_NAME`, `CHAN_CONTROL_SOCKET`, `CHAN_WINDOW_ID` as
-  headers. `SessionStart` uses a curl command hook since it does not take
-  `http` hooks.
-- LAN access requires the token in `~/.config/deck/token`; `/hook/*` is
-  loopback only.
+```
+Claude Code ──HTTP hooks (loopback)──▶ server.js ──SSE──▶ iPad (Safari 12)
+     ▲                                     │                    │
+     └──── held PermissionRequest ◀────────┴──── POST /decide ◀─┘
+```
 
-## Ops
+- Hooks post session events (start, prompt, tool use, stop, errors) to
+  `server.js` on loopback.
+- The server keeps one tile per session (working, needs you, done or error)
+  and pushes the state to the iPad over Server-Sent Events.
+- A `PermissionRequest` hook is held open until you tap **Allow**, **Deny** or
+  **On Mac**. The server then answers the hook, and Claude continues.
+- `AskUserQuestion` also arrives as a `PermissionRequest`. The deck shows the
+  options, then answers with `allow` plus `updatedInput.answers`. Multi-select
+  answers are joined with ", ".
+- Tap a tile to see the end of that session's transcript, plus a compose box.
 
-- Hooks: `~/.claude/settings.json` (template in `examples/hooks.json`).
-- Optional macOS service: a LaunchAgent such as
-  `~/Library/LaunchAgents/com.example.deck.plist` running `node server.js`
-  - restart: `launchctl kickstart -k gui/$(id -u)/com.example.deck`
-  - logs: wherever the plist's `StandardOutPath` points
-- iPad URL: `http://<mac-ip>:8787/?t=<token>` (printed in the log).
+## Safety
+
+- `/hook/*` accepts loopback only. Everything else (the page, SSE, decisions)
+  needs the token in `~/.config/deck/token`, which is created on first run.
+- If no iPad is connected, hooks return instantly and Claude Code behaves as
+  if the deck weren't there.
+- A held permission blocks the agent, so every hold has a timeout. A
+  forgotten tile never stalls a session: when the timeout runs out, the prompt
+  goes back to the normal desktop dialog.
+
+## Configuration
+
+| Variable | Default | What it does |
+|---|---|---|
+| `DECK_PORT` | `8787` | Port to listen on (update `examples/hooks.json` to match) |
+| `DECK_PERM_TIMEOUT` | `90` | Seconds to hold a permission before handing it back to the Mac |
+| `DECK_QUESTION_TIMEOUT` | `300` | Seconds to hold a question (questions need reading time) |
+| `DECK_CS` | `~/.local/bin/cs` | Path to the `chan` terminal CLI (optional) |
+
+## Optional extras (macOS)
+
+- **Reply from the iPad**: sending text works only for sessions running
+  inside chan terminals (`cs terminal write --submit claude`). Desktop
+  sessions are read-only on the deck. For terminal sessions to show up as
+  chan tabs, the hooks also need to send the `X-Chan-Tab`, `X-Chan-Socket`
+  and `X-Chan-Window` headers.
+- **New session** opens `claude` in a new chan tab, in the last chan window a
+  hook reported. Without chan, it presses Cmd+N in Claude.app.
+- **Focus Claude** and **Esc / Interrupt** drive Claude.app via `osascript`.
+  Esc needs the Accessibility permission for the `node` binary, which you have
+  to grant again after Node upgrades.
+- **Run as a service**: a LaunchAgent that runs `node server.js`. Restart it
+  with `launchctl kickstart -k gui/$(id -u)/<label>`.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [`LICENSE`](LICENSE).

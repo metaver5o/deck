@@ -25,46 +25,62 @@ server is a single Node file with zero dependencies.
 
 ## Quick start
 
-You need Node 18+ and Claude Code. There's no API key to set: the deck only
-sees Claude Code's hook events, and Claude Code keeps its own login.
+You need Docker and Claude Code. There's no API key to set: the deck only sees
+Claude Code's hook events, and Claude Code keeps its own login.
 
 ```sh
 git clone https://github.com/metaver5o/deck && cd deck
-node server.js            # prints the iPad URL with its token
+docker compose up -d
+docker compose logs deck     # the iPad URL with its token
 ```
 
-1. Merge [`examples/hooks.json`](examples/hooks.json) into
-   `~/.claude/settings.json` (or a project's `.claude/settings.json`). Keep any
-   hooks you already have.
-2. On the iPad, open the printed `http://<mac-ip>:8787/?t=<token>` (same
+That's it. On start, the container adds its hooks to your
+`~/.claude/settings.json`. Your other settings and hooks stay as they are, a
+backup is saved as `settings.json.bak-deck`, and restarting doesn't add
+duplicates.
+
+1. On the iPad, open the URL from the log, using your computer's IP (same
    Wi-Fi). "Add to Home Screen" makes it full screen.
-3. Start `claude`. Sessions appear as tiles, and permission prompts and
-   questions show up as buttons.
+2. Start a new `claude` session. It appears as a tile, and its permission
+   prompts and questions show up as buttons.
 
-### Or run it in Docker
+To set the IP in the printed URL, or change ports or timeouts, copy
+`.env.example` to `.env` and edit it. Every value has a default.
 
-No Node on the host, just Docker:
+To remove it, take the hooks out first, then stop the stack:
 
 ```sh
-git clone https://github.com/metaver5o/deck && cd deck
-DECK_URL_HOST=<your-mac-ip> docker compose up -d --build
-docker compose logs deck  # the iPad URL with its token
+docker compose run --rm deck node hooks.js uninstall
+docker compose down
 ```
 
-Then merge [`examples/hooks.docker.json`](examples/hooks.docker.json) instead
-of `hooks.json`. The container uses two ports:
+If you stop the deck and leave the hooks in, Claude Code keeps working, but it
+prints a "hook failed" notice on each event.
 
-| Port | Published on | Used for |
-|---|---|---|
-| `8787` | your LAN | the iPad page and its live updates (token required) |
-| `8788` | `127.0.0.1` only | Claude Code hooks |
+### What the container touches
 
-Hooks can't reach a container over loopback, so they get their own port, and
-Docker publishes it on the host's loopback only. Other machines on the LAN
-can't post hooks. The token lives in the `deck-data` volume and survives
-restarts. `~/.claude/projects` is mounted read-only, so the transcript view
-works. The macOS extras below (Focus, Esc, chan) need the deck running on the
-Mac itself, so they're turned off in the container.
+- **`~/.claude`**, mounted at the same path. The deck edits `settings.json`
+  (its own hook entries only) and reads session transcripts for the detail
+  view. On Linux, set `DECK_UID`/`DECK_GID` in `.env` to your `id -u`/`id -g`
+  so it can write the file.
+- **Port `8787`**, on your LAN: the iPad page and its live updates, behind a
+  token. The token is stored in the `deck-data` volume.
+- **Port `8788`**, on `127.0.0.1` only: the hooks. A container never sees
+  loopback traffic, so the hooks get their own port, which Docker publishes on
+  your machine's loopback only. Other machines on the LAN can't post hooks.
+
+### Without Docker
+
+```sh
+node server.js              # Node 18+, zero dependencies
+node hooks.js install       # adds hooks pointing at 127.0.0.1:8787
+```
+
+In this mode the macOS extras below (Focus, Esc, chan) also work. They need
+the deck running on the Mac itself, so they're off in the container. If you'd
+rather edit settings by hand, use [`examples/hooks.json`](examples/hooks.json)
+(or [`examples/hooks.docker.json`](examples/hooks.docker.json) for the
+container) and set `DECK_INSTALL_HOOKS=false`.
 
 The deck works with Claude Code only, in the CLI and in the Desktop Code tab.
 Other agents, such as Gemini CLI, use different hook events and payloads and
@@ -91,7 +107,7 @@ Claude Code ──HTTP hooks (loopback)──▶ server.js ──SSE──▶ iP
 
 ## Safety
 
-- `/hook/*` accepts loopback only. Everything else (the page, SSE, decisions)
+- `/hook/*` accepts loopback only (in Docker: only the host-loopback hook port). Everything else (the page, SSE, decisions)
   needs the token in `~/.config/deck/token`, which is created on first run.
 - If no iPad is connected, hooks return instantly and Claude Code behaves as
   if the deck weren't there.
@@ -106,6 +122,10 @@ Claude Code ──HTTP hooks (loopback)──▶ server.js ──SSE──▶ iP
 | `DECK_PORT` | `8787` | Port to listen on (update `examples/hooks.json` to match) |
 | `DECK_HOOK_PORT` | off (`8788` in Docker) | A separate port for hooks only, instead of the loopback check |
 | `DECK_URL_HOST` | LAN IPs | The host to print in the iPad URL |
+| `DECK_URL_PORT` | `DECK_PORT` | The port to print in the iPad URL |
+| `DECK_INSTALL_HOOKS` | off (`true` in Docker) | Add the deck's hooks to `settings.json` on start |
+| `DECK_CLAUDE_DIR` | `~/.claude` | Where `settings.json` lives |
+| `DECK_HOOK_URL` | `http://127.0.0.1:8787` | The address the installed hooks post to |
 | `DECK_PERM_TIMEOUT` | `90` | Seconds to hold a permission before handing it back to the Mac |
 | `DECK_QUESTION_TIMEOUT` | `300` | Seconds to hold a question (questions need reading time) |
 | `DECK_CS` | `~/.local/bin/cs` | Path to the `chan` terminal CLI (optional) |

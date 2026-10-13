@@ -1,20 +1,28 @@
+# docker compose up -d   -> installs the deck's hooks into ~/.claude/settings.json
+# Optional overrides go in .env (see .env.example).
 services:
   deck:
     build: .
     image: deck:latest
     restart: unless-stopped
+    # Same UID as you, so it can edit your ~/.claude/settings.json (Linux; Docker Desktop doesn't care).
+    user: "${DECK_UID:-1000}:${DECK_GID:-1000}"
     environment:
-      # Your Mac's LAN IP, so the log prints a URL the iPad can open.
-      DECK_URL_HOST: ${DECK_URL_HOST:-your-mac-ip}
+      DECK_INSTALL_HOOKS: ${DECK_INSTALL_HOOKS:-true}
+      DECK_CLAUDE_DIR: ${HOME}/.claude
+      DECK_HOOK_URL: http://127.0.0.1:${DECK_HOOK_HOST_PORT:-8788}
+      DECK_URL_HOST: ${DECK_URL_HOST:-your-computer-ip}
+      DECK_URL_PORT: ${DECK_UI_HOST_PORT:-8787}
       DECK_PERM_TIMEOUT: ${DECK_PERM_TIMEOUT:-90}
       DECK_QUESTION_TIMEOUT: ${DECK_QUESTION_TIMEOUT:-300}
     ports:
-      - "8787:8787"            # iPad UI + SSE, token required
-      - "127.0.0.1:8788:8788"  # Claude Code hooks, this machine only
+      - "${DECK_UI_HOST_PORT:-8787}:8787"                # iPad page + live updates, token required
+      - "127.0.0.1:${DECK_HOOK_HOST_PORT:-8788}:8788"    # Claude Code hooks, this machine only
     volumes:
       - deck-data:/home/node/.config/deck
-      # Session transcripts, mounted at the same path the hooks report.
-      - ${HOME}/.claude/projects:${HOME}/.claude/projects:ro
+      # Your real Claude Code dir, at the same path: hooks go into settings.json,
+      # and transcripts resolve at the paths the hooks report.
+      - ${HOME}/.claude:${HOME}/.claude
 
 volumes:
   deck-data:

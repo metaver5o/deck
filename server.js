@@ -17,6 +17,8 @@ const PORT = Number(process.env.DECK_PORT || 8787);
 const HOOK_PORT = Number(process.env.DECK_HOOK_PORT || 0);
 // Address to print in the iPad URL (a container only knows its own bridge IP).
 const URL_HOST = process.env.DECK_URL_HOST || '';
+// Port to print in that URL, when Docker publishes the UI on a different host port.
+const URL_PORT = Number(process.env.DECK_URL_PORT || PORT);
 // Held PermissionRequest hooks block the Desktop dialog, so fall back to it
 // after this long without an answer from the iPad.
 const PERM_TIMEOUT_MS = Number(process.env.DECK_PERM_TIMEOUT || 90) * 1000;
@@ -460,8 +462,16 @@ setInterval(() => {
   for (const c of clients) c.write('event: ping\ndata: 1\n\n');
 }, 15000);
 
+if (process.env.DECK_INSTALL_HOOKS === 'true') {
+  try {
+    console.log('deck hooks installed in ' + require('./hooks').install());
+  } catch (e) {
+    console.error('could not install hooks: ' + e.message);
+  }
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log('deck listening on :' + PORT);
-  for (const a of URL_HOST ? [URL_HOST] : lanAddrs()) console.log('  iPad: http://' + a + ':' + PORT + '/?t=' + TOKEN);
+  for (const a of URL_HOST ? [URL_HOST] : lanAddrs()) console.log('  iPad: http://' + a + ':' + URL_PORT + '/?t=' + TOKEN);
 });
 if (HOOK_PORT) http.createServer(handle).listen(HOOK_PORT, '0.0.0.0', () => console.log('hooks on :' + HOOK_PORT));
